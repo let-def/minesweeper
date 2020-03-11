@@ -71,21 +71,29 @@ let onload _ =
       Lwd.map Lwdom.singleton (Lwdom.element "br" empty_element);
       int_input "Number of mines" ~set_value:(Lwd.set nbm) (Lwd.get nbm);
       Lwd.map Lwdom.singleton (Lwdom.element "br" empty_element);
-      Lwd.map Lwdom.singleton @@ button "nouvelle partie" (fun _ _ ->
+      Lwd.map Lwdom.singleton @@ button "new game" (fun _ _ ->
           (*let div = Html.createDiv document in
           Dom.appendChild main div;*)
           Lwd_table.append' boards
             (Minesweeper.run (Lwd.peek nbc) (Lwd.peek nbr) (Lwd.peek nbm));
           false
-        )
+        );
     ] in
-  let root = Lwdom.element "span"
-      (Lwd.map2' elements
-         (Lwd.join
-           (Lwd_table.reduce
-             (Lwd_utils.lift_monoid (Lwdom.empty, Lwdom.join)) boards))
-         (fun elts boards ->
-           Lwdom.empty, Lwdom.join elts boards, Lwdom.empty))
+  let root =
+    let (>>=) = Lwd.bind in
+    let div_board =
+      Lwd.join (Lwd_table.reduce
+        (Lwd_utils.lift_monoid (Lwdom.empty, Lwdom.join)) boards)
+      >>= fun boards ->
+      Lwdom.element "div" @@ Lwd.return (Lwdom.empty, boards, Lwdom.empty)
+    in
+    Lwd.map2' elements div_board
+      (fun elts div_board ->
+         Lwdom.element "div" @@
+           Lwd.return
+           (Lwdom.empty, Lwdom.join elts (Lwdom.singleton div_board), Lwdom.empty)
+      )
+      |> Lwd.join
   in
   let root = Lwd.observe root in
   Lwd.set_on_invalidate root (fun _ ->
