@@ -1,35 +1,12 @@
 open Js_of_ocaml
 
-type attribute = {
-  attr_key: Js.js_string Js.t;
-  attr_val: Js.js_string Js.t;
-}
-
-let attribute k v = {
-  attr_key = Js.string k;
-  attr_val = Js.string v;
-}
-
-type event =
-    Event :  {
-      typ : (#Js_of_ocaml__.Dom_html.event as 'a) Js.t Dom.Event.typ;
-      callback : Dom_html.element Js.t -> 'a Js.t -> bool;
-      mutable listener : Dom_events.listener option;
-    } -> event
-
-let event typ callback =
-  Event { typ; callback; listener = None }
-
-let get_attribute node attr =
-  match Js.Opt.to_option (node##getAttribute (Js.string attr)) with
-  | None -> ""
-  | Some str -> Js.to_string str
-
 type 'a collection = 'a Dset.t
 
 let empty = Dset.empty
 let singleton x = Dset.element x
 let join c1 c2 = Dset.union c1 c2
+let list l =
+  List.fold_left join empty l
 
 let cache_result cache result = (cache := result; result)
 
@@ -47,12 +24,30 @@ let ljoin ll lr =
   | Dset.Union (l', r') when l == l' && r == r' -> !cache
   | _ -> cache_result cache (join l r)
 
+type property =
+  | Attribute of {
+      key: Js.js_string Js.t;
+      value: Js.js_string Js.t;
+    }
+  | Event :  {
+      typ : (#Js_of_ocaml__.Dom_html.event as 'a) Js.t Dom.Event.typ;
+      callback : Dom_html.element Js.t -> 'a Js.t -> bool;
+      mutable listener : Dom_events.listener option;
+    } -> property
+
+type properties = property collection
+
+let attribute k v =
+  singleton (Attribute { key = Js.string k; value = Js.string v })
+
+let event typ callback =
+  singleton (Event { typ; callback; listener = None })
+
 type node = Dom.node Js.t
 
 type state = {
   element: Dom_html.element Js.t;
-  mutable attributes: attribute collection;
-  mutable events: event collection;
+  mutable properties: property collection;
   mutable children: node collection;
 }
 
@@ -94,59 +89,68 @@ let insert_right_nodes (parent : node) (marking : node Dset.marking) t =
   in
   aux t Js.null
 
-let mk_state tag = {
-  element = Dom_html.document##createElement (Js.string tag);
-  attributes = empty;
-  events = empty;
-  children = empty;
-}
-
-let update_attributes state ~left ~right =
-  state.attributes <- right;
+let update_properties state right =
+  let left = state.properties in
+  state.properties <- right;
   let diff = Dset.diff ~left ~right in
-  List.iter (fun a -> state.element##removeAttribute a.attr_key)
-    diff.left_only;
-  List.iter (fun a -> state.element##setAttribute a.attr_key a.attr_val)
-    diff.right_only
-
-let update_events state ~left ~right =
-  state.events <- right;
-  let diff = Dset.diff ~left ~right in
-  List.iter (fun (Event e) ->
-      match e.listener with
-      | None -> ()
-      | Some listener ->
+  List.iter (function
+      | Attribute a ->
+        Js.Unsafe.delete state.element a.key
+      | Event { listener = None; _ } -> ()
+      | Event ({ listener = Some listener; _ } as e) ->
         e.listener <- None;
         Dom_events.stop_listen listener
     ) diff.left_only;
-  List.iter (fun (Event e) ->
-      let l = Dom_events.listen state.element e.typ e.callback in
-      e.listener <- Some l
+  List.iter (function
+      | Attribute a -> Js.Unsafe.set state.element a.key a.value
+      | Event e ->
+        e.listener <- Some (Dom_events.listen state.element e.typ e.callback)
     ) diff.right_only
 
-let update_children state ~left ~right =
+let update_children state right =
+  let left = state.children in
   state.children <- right;
   let marking = Dset.mark ~left ~right in
   begin try
       let node : Dom_html.element Js.t :> Dom.node Js.t = state.element in
-      ignore (insert_right_nodes node marking right : _ Js.opt);
       remove_left_nodes node marking left;
+      ignore (insert_right_nodes node marking right : _ Js.opt);
     with exn ->
       Dset.unmark marking;
       raise exn
   end;
   Dset.unmark marking
 
-let element tag collections =
+let mk_state tag = {
+  element = Dom_html.document##createElement (Js.string tag);
+  properties = empty;
+  children = empty;
+}
+
+let element_as_node x = (x : Dom_html.element Js.t :> Dom.node Js.t)
+
+let element ?properties ?children tag =
   let state = mk_state tag in
-  Lwd.map' collections @@ fun (attributes, children, events) ->
-  update_attributes state ~left:state.attributes ~right:attributes;
-  update_events state ~left:state.events ~right:events;
-  update_children state ~left:state.children ~right:children;
-  (state.element : Dom_html.element Js.t :> Dom.node Js.t)
+  match properties, children with
+  | None, None -> Lwd.pure (element_as_node state.element)
+  | Some props, None ->
+    Lwd.map' props (fun props ->
+        update_properties state props;
+        element_as_node state.element
+      )
+  | None, Some children ->
+    Lwd.map' children (fun children ->
+        update_children state children;
+        element_as_node state.element
+      )
+  | Some props, Some children ->
+    Lwd.map2' props children (fun props children ->
+        update_properties state props;
+        update_children state children;
+        element_as_node state.element
+      )
 
 let text txt =
   Lwd.map' txt (fun txt ->
-      let node = Dom_html.document##createTextNode (Js.string txt) in
-      (node : Dom.text Js.t :> node)
+      (Dom_html.document##createTextNode (Js.string txt) :> node)
     )

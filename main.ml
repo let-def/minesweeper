@@ -13,8 +13,6 @@ let js = Js.string
 
 let document = Html.window##.document
 
-let empty_element = Lwd.pure (Lwdom.empty, Lwdom.empty, Lwdom.empty)
-
 let of_list ls =
   List.fold_left Lwdom.join Lwdom.empty ls
 
@@ -24,14 +22,10 @@ let lof_list ls =
 let int_input name value ~set_value =
   let value = Lwd.map string_of_int value in
   let name = Lwdom.text (Lwd.pure name) in
-  let input =
-    let attributes =
-      Lwdom.ljoin
-        (Lwdom.lsingleton (Lwd.pure (Lwdom.attribute "type" "text") ))
-        (Lwdom.lsingleton (Lwd.map (Lwdom.attribute "value") value ))
-    in
-    let events =
-      Lwdom.event Dom_events.Typ.change
+  let input = Lwdom.element "input" ~properties:(lof_list [
+      Lwd.pure (Lwdom.attribute "type" "text");
+      Lwd.map (Lwdom.attribute "value") value;
+      Lwd.pure @@ Lwdom.event Dom_events.Typ.change
         (fun element _event ->
            let element : Html.inputElement Js.t = Obj.magic element in
            let value = Js.to_string element##.value in
@@ -42,23 +36,17 @@ let int_input name value ~set_value =
            end;
            true
         )
-      |> Lwdom.singleton
-    in
-    Lwdom.element "input"
-      (Lwd.map' attributes (fun attr -> attr, Lwdom.empty, events))
+    ]
+    )
   in
   Lwdom.ljoin (Lwdom.lsingleton name) (Lwdom.lsingleton input)
 
 let button name callback =
-  let attributes = of_list [
-      Lwdom.singleton @@ Lwdom.attribute "type" "submit";
-      Lwdom.singleton @@ Lwdom.attribute "value" name;
-    ]
-  and events = of_list [
-    Lwdom.singleton @@ Lwdom.event Dom_events.Typ.click callback
-  ]
-  in
-  Lwdom.element "input" (Lwd.pure (attributes, Lwdom.empty, events))
+  Lwdom.element "input" ~properties:(Lwd.pure @@ of_list [
+      Lwdom.attribute "type" "submit";
+      Lwdom.attribute "value" name;
+      Lwdom.event Dom_events.Typ.click callback
+    ])
 
 let onload _ =
   let main = Js.Opt.get (document##getElementById (js "main")) (fun () -> assert false) in
@@ -66,11 +54,11 @@ let onload _ =
   let boards = Lwd_table.make () in
   let elements = lof_list [
       int_input "Number of columns" ~set_value:(fun v -> Lwd.set nbr v; prerr_endline @@ "columns = " ^ string_of_int v) (Lwd.get nbr);
-      Lwd.map Lwdom.singleton (Lwdom.element "br" empty_element);
+      Lwd.map Lwdom.singleton (Lwdom.element "br");
       int_input "Number of rows" ~set_value:(Lwd.set nbc) (Lwd.get nbc);
-      Lwd.map Lwdom.singleton (Lwdom.element "br" empty_element);
+      Lwd.map Lwdom.singleton (Lwdom.element "br");
       int_input "Number of mines" ~set_value:(Lwd.set nbm) (Lwd.get nbm);
-      Lwd.map Lwdom.singleton (Lwdom.element "br" empty_element);
+      Lwd.map Lwdom.singleton (Lwdom.element "br");
       Lwd.map Lwdom.singleton @@ button "nouvelle partie" (fun _ _ ->
           (*let div = Html.createDiv document in
           Dom.appendChild main div;*)
@@ -80,12 +68,12 @@ let onload _ =
         )
     ] in
   let root = Lwdom.element "span"
-      (Lwd.map2' elements
-         (Lwd.join
-           (Lwd_table.reduce
-             (Lwd_utils.lift_monoid (Lwdom.empty, Lwdom.join)) boards))
-         (fun elts boards ->
-           Lwdom.empty, Lwdom.join elts boards, Lwdom.empty))
+      ~children:
+        (Lwd.map2 Lwdom.join
+           elements
+           (Lwd.join
+              (Lwd_table.reduce
+                 (Lwd_utils.lift_monoid (Lwdom.empty, Lwdom.join)) boards)))
   in
   let root = Lwd.observe root in
   Lwd.set_on_invalidate root (fun _ ->

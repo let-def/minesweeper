@@ -167,23 +167,20 @@ let cell_image_src cell =
   else "sprites/normal.png"
 
 let cell_image cell ~on_click =
-  Lwdom.element "img" @@ Lwd.map' cell @@ fun cell ->
-  let attributes =
-    Lwdom.singleton (Lwdom.attribute "src" (cell_image_src cell))
-  and events =
-    Lwdom.singleton (Lwdom.event Dom_events.Typ.click (fun _ _ -> on_click ()))
-  and elements =
-    Lwdom.empty
+  let properties = Lwd.map' cell @@ fun cell ->
+    Lwdom.list [
+      Lwdom.attribute "src" (cell_image_src cell);
+      Lwdom.event Dom_events.Typ.click (fun _ _ -> on_click ());
+    ]
   in
-  (attributes, elements, events)
+  Lwdom.element "img" ~properties
 
 let mark_cell d cell =
   let cell' = Lwd.peek cell in
-  if cell'.flag
-  then (
+  if cell'.flag then (
     d.nb_marked_cells <- d.nb_marked_cells - 1;
-    Lwd.set cell {cell' with flag = false})
-  else (
+    Lwd.set cell {cell' with flag = false}
+  ) else (
     d.nb_marked_cells <- d.nb_marked_cells + 1;
     Lwd.set cell {cell' with flag = true}
   )
@@ -259,7 +256,6 @@ let init_table d =
             )
         ) col
     ) d.bd;
-  let empty_element = Lwd.pure (Lwdom.empty, Lwdom.empty, Lwdom.empty) in
   let collection_monoid = (Lwdom.empty, Lwdom.join) in
   let nodes =
     Lwd_table.map_reduce (fun _ table ->
@@ -270,8 +266,8 @@ let init_table d =
             (table : Lwdom.node Lwd.t Lwd_table.t)
         in
         Lwd.map2'
+          (Lwd.map Lwdom.singleton (Lwdom.element "br"))
           (Lwd.join nodes)
-          (Lwdom.lsingleton (Lwdom.element "br" empty_element))
           Lwdom.join
       )
       (Lwd_utils.lift_monoid collection_monoid)
