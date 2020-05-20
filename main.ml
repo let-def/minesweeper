@@ -78,9 +78,9 @@ let onload _ =
   let root = Lwd.observe root in
   Lwd.set_on_invalidate root (fun _ ->
       ignore (Html.window##requestAnimationFrame
-                (Js.wrap_callback (fun _ -> ignore (Lwd.sample root)))
+                (Js.wrap_callback (fun _ -> ignore (Lwd.quick_sample root)))
              ));
-  Dom.appendChild main (Lwd.sample root);
+  Dom.appendChild main (Lwd.quick_sample root);
   Js._false
 
 let _ = Html.window##.onload := Html.handler onload
