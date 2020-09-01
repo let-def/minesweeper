@@ -7,11 +7,9 @@
  *
  *)
 open Js_of_ocaml
-module Html = Dom_html
+open Lwdom
 
 let js = Js.string
-
-let document = Html.window##.document
 
 type config =
   { nbcols : int
@@ -155,25 +153,28 @@ type demin_cf =
   }
 
 let cell_image_src cell =
-  if cell.flag
-  then "sprites/flag.png"
-  else if cell.mined
-  then "sprites/bomb.png"
-  else if cell.seen
-  then
-    if cell.nbm = 0
-    then "sprites/empty.png"
-    else "sprites/" ^ string_of_int cell.nbm ^ ".png"
-  else "sprites/normal.png"
+  Some (
+    Html.uri_of_string @@
+    if cell.flag
+    then "sprites/flag.png"
+    else if cell.mined
+    then "sprites/bomb.png"
+    else if cell.seen
+    then
+      if cell.nbm = 0
+      then "sprites/empty.png"
+      else "sprites/" ^ string_of_int cell.nbm ^ ".png"
+    else "sprites/normal.png"
+  )
+
+let pure_attr x = Lwd.pure (Some x)
 
 let cell_image cell ~on_click =
-  let properties = Lwd.map' cell @@ fun cell ->
-    Lwdom.list [
-      Lwdom.attribute "src" (cell_image_src cell);
-      Lwdom.event Dom_events.Typ.click (fun _ _ -> on_click ());
-    ]
-  in
-  Lwdom.element "img" ~properties
+  Html.img
+    ~src:(Lwd.map cell_image_src cell)
+    ~alt:(pure_attr "Hello")
+    ~a:[Html.a_onclick (Lwd.pure (Some (fun _ -> on_click ())))]
+    ()
 
 let mark_cell d cell =
   let cell' = Lwd.peek cell in
@@ -192,7 +193,7 @@ let reveal d i j =
   in
   List.iter reveal_cell (cells_to_see d.bd d.cf (i, j));
   if d.nb_hidden_cells = 0
-  then (Html.window##alert (js "YOU WIN"))
+  then (Dom_html.window##alert (js "YOU WIN"))
 
 let create_demin nb_c nb_r nb_m =
   let nbc = max default_config.nbcols nb_c and nbr = max default_config.nbrows nb_r in
@@ -247,7 +248,7 @@ let init_table d =
                   else if cell'.mined
                   then (
                     (*draw_board d; disable_events d;*)
-                    Html.window##alert (js "YOU LOSE"))
+                    Dom_html.window##alert (js "YOU LOSE"))
                   else reveal d x y
                 | Flag ->
                   update cell (fun c -> {c with flag = not c.flag})
@@ -256,25 +257,21 @@ let init_table d =
             )
         ) col
     ) d.bd;
-  let collection_monoid = (Lwdom.empty, Lwdom.join) in
+  let lwd_seq_monoid = Lwd_utils.lift_monoid (Lwd_seq.empty, Lwd_seq.concat) in
   let nodes =
-    Lwd_table.map_reduce (fun _ table ->
-        let nodes =
-          Lwd_table.map_reduce
-            (fun _ cell -> Lwd.map Lwdom.singleton cell)
-            (Lwd_utils.lift_monoid collection_monoid)
-            (table : Lwdom.node Lwd.t Lwd_table.t)
-        in
-        Lwd.map2'
-          (Lwd.map Lwdom.singleton (Lwdom.element "br"))
-          (Lwd.join nodes)
-          Lwdom.join
+    Lwd_table.map_reduce
+      (fun _ table ->
+         Lwd.map2 Lwd_seq.concat
+           (Xml.Child.singleton (Html.br ()))
+           (Lwd_table.map_reduce
+              (fun _ x -> (x : _ Html.elt :> _ Html.children))
+              lwd_seq_monoid table
+            |> Lwd.join)
       )
-      (Lwd_utils.lift_monoid collection_monoid)
+      lwd_seq_monoid
       table
-    |> Lwd.join
   in
-  nodes
+  Lwd.join nodes
 
 let run nbc nbr nbm =
   let d = create_demin nbc nbr nbm in

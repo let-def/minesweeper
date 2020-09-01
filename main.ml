@@ -7,80 +7,82 @@
  *
  *)
 open Js_of_ocaml
-module Html = Dom_html
+open Lwdom
 
 let js = Js.string
 
-let document = Html.window##.document
+let document = Dom_html.window##.document
 
-let of_list ls =
-  List.fold_left Lwdom.join Lwdom.empty ls
+(*let of_list ls = Lwd_utils.pack Lwd_seq.monoid ls
+let lof_list ls = Lwd_utils.pack Lwd_seq.lwd_monoid ls*)
 
-let lof_list ls =
-  List.fold_left Lwdom.ljoin (Lwd.pure Lwdom.empty) ls
+let children ls =
+  let ls = (ls : _ Html.elt list :> _ Html.children list) in
+  Lwd_utils.pack Lwd_seq.monoid ls
+
+let singleton x = (x : _ Html.elt :> _ Html.children)
 
 let int_input name value ~set_value =
   let value = Lwd.map string_of_int value in
-  let name = Lwdom.text (Lwd.pure name) in
-  let input = Lwdom.element "input" ~properties:(lof_list [
-      Lwd.pure (Lwdom.attribute "type" "text");
-      Lwd.map (Lwdom.attribute "value") value;
-      Lwd.pure @@ Lwdom.event Dom_events.Typ.change
-        (fun element _event ->
-           let element : Html.inputElement Js.t = Obj.magic element in
-           let value = Js.to_string element##.value in
-           prerr_endline @@ "change " ^ value;
-           begin match int_of_string_opt value with
-             | None -> ()
-             | Some v -> set_value v
-           end;
-           true
-        )
-    ]
-    )
-  in
-  Lwdom.ljoin (Lwdom.lsingleton name) (Lwdom.lsingleton input)
+  Lwd.map2 Lwd_seq.concat
+    (Html.Xml.Child.singleton (Html.txt (Lwd.pure (Tyxml_lwd.Singleton.inj name))))
+    (Html.Xml.Child.singleton (Html.input ~a:[
+        Html.a_input_type (Lwd.pure (Some `Text));
+        Html.a_value (Lwd.map (fun x -> Some x) value);
+        Html.a_onchange (Lwd.pure (Some (fun event ->
+            let element = Dom_html.eventTarget event in
+            let element : Dom_html.inputElement Js.t = Obj.magic element in
+            let value = Js.to_string element##.value in
+            prerr_endline @@ "change " ^ value;
+            begin match int_of_string_opt value with
+              | None -> ()
+              | Some v -> set_value v
+            end;
+            true
+          )));
+      ] ()))
 
 let button name callback =
-  Lwdom.element "input" ~properties:(Lwd.pure @@ of_list [
-      Lwdom.attribute "type" "submit";
-      Lwdom.attribute "value" name;
-      Lwdom.event Dom_events.Typ.click callback
-    ])
+  Html.input ~a:[
+    Html.a_input_type (Lwd.pure (Some `Submit));
+    Html.a_value (Lwd.pure (Some name));
+    Html.a_onclick (Lwd.pure (Some callback));
+  ] ()
 
 let onload _ =
   let main = Js.Opt.get (document##getElementById (js "main")) (fun () -> assert false) in
   let nbr, nbc, nbm = Lwd.var 10, Lwd.var 12, Lwd.var 15 in
   let boards = Lwd_table.make () in
-  let elements = lof_list [
-      int_input "Number of columns" ~set_value:(fun v -> Lwd.set nbr v; prerr_endline @@ "columns = " ^ string_of_int v) (Lwd.get nbr);
-      Lwd.map Lwdom.singleton (Lwdom.element "br");
+  let elements = Lwd_utils.pack Lwd_seq.monoid [
+      int_input "Number of columns"
+        ~set_value:(fun v -> Lwd.set nbr v; prerr_endline @@ "columns = " ^ string_of_int v)
+        (Lwd.get nbr);
+      singleton (Html.br ());
       int_input "Number of rows" ~set_value:(Lwd.set nbc) (Lwd.get nbc);
-      Lwd.map Lwdom.singleton (Lwdom.element "br");
+      singleton (Html.br ());
       int_input "Number of mines" ~set_value:(Lwd.set nbm) (Lwd.get nbm);
-      Lwd.map Lwdom.singleton (Lwdom.element "br");
-      Lwd.map Lwdom.singleton @@ button "nouvelle partie" (fun _ _ ->
+      singleton (Html.br ());
+      singleton (button "nouvelle partie" (fun _ ->
           (*let div = Html.createDiv document in
-          Dom.appendChild main div;*)
+            Dom.appendChild main div;*)
           Lwd_table.append' boards
             (Minesweeper.run (Lwd.peek nbc) (Lwd.peek nbr) (Lwd.peek nbm));
           false
-        )
+        ))
     ] in
-  let root = Lwdom.element "span"
-      ~children:
-        (Lwd.map2 Lwdom.join
-           elements
-           (Lwd.join
-              (Lwd_table.reduce
-                 (Lwd_utils.lift_monoid (Lwdom.empty, Lwdom.join)) boards)))
+  let root =
+    Html.span
+      (Lwd.map2 Lwd_seq.concat
+         elements
+         (Lwd.join (Lwd_table.reduce Lwd_seq.lwd_monoid boards)))
   in
   let root = Lwd.observe root in
   Lwd.set_on_invalidate root (fun _ ->
-      ignore (Html.window##requestAnimationFrame
+      ignore (Dom_html.window##requestAnimationFrame
                 (Js.wrap_callback (fun _ -> ignore (Lwd.quick_sample root)))
              ));
-  Dom.appendChild main (Lwd.quick_sample root);
+  Dom.appendChild main
+    (Obj.magic (Tyxml_lwd.Singleton.prj (Lwd.quick_sample root)));
   Js._false
 
-let _ = Html.window##.onload := Html.handler onload
+let _ = Dom_html.window##.onload := Dom_html.handler onload

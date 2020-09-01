@@ -1,6 +1,6 @@
 (executables
   (names main)
-  (libraries js_of_ocaml-lwt grenier.dset lwd)
+  (libraries js_of_ocaml-lwt lwd tyxml_lwd)
   (modes byte)
   (preprocess (pps js_of_ocaml-ppx)))
 
