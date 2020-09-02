@@ -229,49 +229,41 @@ let init_table d =
               img##.src := js "sprites/bomb.png");
           Js._false);
     Dom.appendChild buf (Html.createBr document);*)
-  let table = Lwd_table.make () in
-  Array.iteri (fun x col ->
-      let tcol = Lwd_table.make () in
-      Lwd_table.append' table tcol;
-      Array.iteri (fun y cell ->
-          Lwd_table.append' tcol @@
-          cell_image (Lwd.get cell) ~on_click:(fun () ->
-              begin match !mode with
-                | Normal ->
-                  let cell' = Lwd.peek cell in
-                  if cell'.seen
-                  then ()
-                  else if d.flag_switch_on
-                  then mark_cell d cell
-                  else if cell'.flag
-                  then ()
-                  else if cell'.mined
-                  then (
-                    (*draw_board d; disable_events d;*)
-                    Dom_html.window##alert (js "YOU LOSE"))
-                  else reveal d x y
-                | Flag ->
-                  update cell (fun c -> {c with flag = not c.flag})
-              end;
-              true
-            )
-        ) col
-    ) d.bd;
-  let lwd_seq_monoid = Lwd_utils.lift_monoid (Lwd_seq.empty, Lwd_seq.concat) in
-  let nodes =
-    Lwd_table.map_reduce
-      (fun _ table ->
-         Lwd.map2 Lwd_seq.concat
-           (Xml.Child.singleton (Html.br ()))
-           (Lwd_table.map_reduce
-              (fun _ x -> (x : _ Html.elt :> _ Html.children))
-              lwd_seq_monoid table
-            |> Lwd.join)
+  let render_column x col =
+    col
+    |> Array.mapi (fun y cell ->
+        cell_image (Lwd.get cell) ~on_click:(fun () ->
+            begin match !mode with
+              | Normal ->
+                let cell' = Lwd.peek cell in
+                if cell'.seen
+                then ()
+                else if d.flag_switch_on
+                then mark_cell d cell
+                else if cell'.flag
+                then ()
+                else if cell'.mined
+                then (
+                  (*draw_board d; disable_events d;*)
+                  Dom_html.window##alert (js "YOU LOSE"))
+                else reveal d x y
+              | Flag ->
+                update cell (fun c -> {c with flag = not c.flag})
+            end;
+            true
+          )
       )
-      lwd_seq_monoid
-      table
+    |> Array.to_list
+    |> children
   in
-  Lwd.join nodes
+  Array.mapi (fun x col ->
+      child_flatten [
+        children [Html.br ()];
+        render_column x col;
+      ]
+    ) d.bd
+  |> Array.to_list
+  |> child_flatten
 
 let run nbc nbr nbm =
   let d = create_demin nbc nbr nbm in
